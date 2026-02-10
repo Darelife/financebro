@@ -47,10 +47,11 @@ def main():
     Code Logic:
     1. Parse arguments.
     2. Fetch market data (Top Gainers).
-    3. Apply date filtering if -d is present.
-    4. Apply prediction logic if -p is present.
-    5. Apply backtesting logic if -t is present.
-    6. Display the results in a table format.
+    3. If no data, exit.
+    4. Apply date filtering if -d is present.
+    5. Apply prediction logic if -p is present.
+    6. Apply backtesting logic if -t is present.
+    7. If only date is present, show data.
 
     Output:
     None (Prints to stdout).
@@ -82,12 +83,7 @@ def main():
 
     if args.test:
         print("\nRunning Backtest Mode...")
-        df = backtester.test_prediction_accuracy(df)
-        
-        if 'Accuracy_%' in df.columns:
-            columns_to_show = ['symbol', 'Yesterday_Close', 'Predicted_Today', 'Actual_Today', 'Accuracy_%']
-            print("\n----- Backtest Results (Accuracy of 'No Change' Model) -----")
-            print(df[columns_to_show].head(10).to_string(index=False))
+        backtester.test_prediction_accuracy(df)
 
     if args.date and not args.predict and not args.test:
         print(f"\nData for {args.date} (Simulated/Proxy):")

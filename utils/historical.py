@@ -16,10 +16,9 @@ def filter_by_date(df, date_str):
     Code Logic:
     1. Parse the input `date_str` into a datetime object.
     2. Check if the date is in the future or past.
-    3. Since `nsetools` provides real-time data efficiently but not deep history for "top gainers" snapshots freely:
-       - If the date is today, return the dataframe as is.
-       - If the date is in the past, print a warning that historical top gainers data is not available in this simple version, and return the current data as a placeholder.
-    4. Return the dataframe.
+    3. If the date is today, return the dataframe as is.
+    4. If the date is in the past, print a warning that historical top gainers data is not available in this simple version, and return the current data as a placeholder.
+    5. Return the dataframe.
 
     Output:
     pandas.DataFrame: The filtered (or proxy) dataframe.
