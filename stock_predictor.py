@@ -1,29 +1,97 @@
-from nsetools import Nse
-import pandas as pd
+import argparse
+import sys
+from utils import data_fetcher, predictor, historical, backtester
+
+def parse_arguments():
+    """
+    Input Structure:
+    None (uses sys.argv).
+
+    Who calls this function:
+    Main execution block.
+
+    Task:
+    Parse command line arguments for the stock predictor.
+
+    Code Logic:
+    1. Define arguments: -p/--predict, -d/--date, -t/--test.
+    2. Parse arguments.
+    3. If no arguments are provided, print help and exit.
+
+    Output:
+    argparse.Namespace: The parsed arguments.
+    """
+    parser = argparse.ArgumentParser(description="Indian Stock Market Predictor")
+    
+    parser.add_argument('-p', '--predict', action='store_true', help='Make a prediction about top 5 stocks')
+    parser.add_argument('-d', '--date', type=str, metavar='ddmmyyyy', help='Use data upto a specific date')
+    parser.add_argument('-t', '--test', action='store_true', help='Test accuracy by comparing yesterday\'s data with today')
+    
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(0)
+        
+    return parser.parse_args()
 
 def main():
     """
-    Fetches the top gainers from the NSE and prints them in a formatted table.
+    Input Structure:
+    None.
+
+    Who calls this function:
+    Script entry point.
+
+    Task:
+    Orchestrate the stock prediction/testing flow based on user flags.
+
+    Code Logic:
+    1. Parse arguments.
+    2. Fetch market data (Top Gainers).
+    3. Apply date filtering if -d is present.
+    4. Apply prediction logic if -p is present.
+    5. Apply backtesting logic if -t is present.
+    6. Display the results in a table format.
+
+    Output:
+    None (Prints to stdout).
     """
-    try:
-        nse = Nse()
-        top_gainers = nse.get_top_gainers()
+    args = parse_arguments()
+    
+    print("Fetching market data...")
+    df = data_fetcher.get_market_data()
+    
+    if df.empty:
+        print("No data received. Exiting.")
+        return
+
+    if args.date:
+        df = historical.filter_by_date(df, args.date)
         
-        if top_gainers:
-            df = pd.DataFrame(top_gainers)
+    if args.predict:
+        print("\nRunning Prediction Mode...")
+        df = predictor.predict_future_values(df)
+        
+        if 'Predicted_Value' in df.columns:
+            columns_to_show = ['symbol', 'ltp', 'Predicted_Value']
+            print("\n----- Top 5 Predicted Future Values -----")
+            df_sorted = df.sort_values(by='Predicted_Value', ascending=False)
+            print(df_sorted[columns_to_show].head(5).to_string(index=False))
             
-            columns = ['symbol', 'ltp', 'perChange', 'open_price', 'high_price', 'low_price']
-            
-            df['perChange'] = pd.to_numeric(df['perChange'], errors='coerce')
-            df = df.sort_values(by='perChange', ascending=False)
-            
-            print("\n----- Top Gainers (Highest Return Today) -----")
-            print(df[columns].head(10).to_string(index=False))
-        else:
-            print("No data available.")
-            
-    except Exception as e:
-        print(f"Error: {e}")
+            print("\n----- All Stocks with Predictions -----")
+            print(df[['symbol', 'ltp', 'Predicted_Value']].to_string(index=False))
+
+    if args.test:
+        print("\nRunning Backtest Mode...")
+        df = backtester.test_prediction_accuracy(df)
+        
+        if 'Accuracy_%' in df.columns:
+            columns_to_show = ['symbol', 'Yesterday_Close', 'Predicted_Today', 'Actual_Today', 'Accuracy_%']
+            print("\n----- Backtest Results (Accuracy of 'No Change' Model) -----")
+            print(df[columns_to_show].head(10).to_string(index=False))
+
+    if args.date and not args.predict and not args.test:
+        print(f"\nData for {args.date} (Simulated/Proxy):")
+        print(df.head(10).to_string(index=False))
 
 if __name__ == "__main__":
     main()
