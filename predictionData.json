@@ -1,0 +1,54 @@
+{
+    "04-04-2026": {
+        "MARUTI": {
+            "Predicted_Value": 12841.800000000001,
+            "ltp": 12590.0,
+            "high_price": 12673.0,
+            "low_price": 12239.0,
+            "prev_price": 12509.0,
+            "net_price": 0.65,
+            "turnover": 54616.41,
+            "open_price": 12389.0
+        },
+        "TITAN": {
+            "Predicted_Value": 4159.56,
+            "ltp": 4078.0,
+            "high_price": 4109.1,
+            "low_price": 3944.7,
+            "prev_price": 4065.5,
+            "net_price": 0.31,
+            "turnover": 65378.74,
+            "open_price": 3996.0
+        },
+        "TCS": {
+            "Predicted_Value": 2494.614,
+            "ltp": 2445.7,
+            "high_price": 2469.9,
+            "low_price": 2375.7,
+            "prev_price": 2408.2,
+            "net_price": 1.56,
+            "turnover": 130621.56,
+            "open_price": 2386.0
+        },
+        "BHARTIARTL": {
+            "Predicted_Value": 1827.8400000000001,
+            "ltp": 1792.0,
+            "high_price": 1799.4,
+            "low_price": 1746.9,
+            "prev_price": 1781.9,
+            "net_price": 0.57,
+            "turnover": 191957.75,
+            "open_price": 1765.0
+        },
+        "TECHM": {
+            "Predicted_Value": 1467.78,
+            "ltp": 1439.0,
+            "high_price": 1447.0,
+            "low_price": 1383.5,
+            "prev_price": 1404.5,
+            "net_price": 2.46,
+            "turnover": 35680.04,
+            "open_price": 1390.0
+        }
+    }
+}
