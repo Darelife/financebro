@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import json
+import os
 import sys
 
 from utils import backtester, data_fetcher, historical, predictor
@@ -15,15 +16,16 @@ def parse_arguments():
     Main execution block.
 
     Task:
-    Parse command line arguments for the stock predictor.
+    Parse command line arguments for controlling prediction and testing behavior.
 
     Code Logic:
-    1. Define arguments: -p/--predict, -d/--date, -t/--test.
-    2. Parse arguments.
-    3. If no arguments are provided, print help and exit.
+    1. Define arguments for prediction, date filtering, and testing.
+    2. Parse command line arguments.
+    3. If no arguments are provided, display help and exit.
+    4. Return parsed arguments.
 
     Output:
-    argparse.Namespace: The parsed arguments.
+    argparse.Namespace: Parsed command-line arguments.
     """
     parser = argparse.ArgumentParser(description="Indian Stock Market Predictor")
 
@@ -63,19 +65,21 @@ def main():
     Script entry point.
 
     Task:
-    Orchestrate the stock prediction/testing flow based on user flags.
+    Control the execution flow for fetching data, predicting values, and backtesting.
 
     Code Logic:
-    1. Parse arguments.
-    2. Fetch market data (Top Gainers).
-    3. If no data, exit.
-    4. Apply date filtering if -d is present.
-    5. Apply prediction logic if -p is present.
-    6. Apply backtesting logic if -t is present.
-    7. If only date is present, show data.
+    1. Parse command line arguments.
+    2. Fetch market data.
+    3. Exit if no data is available.
+    4. Apply date filtering if specified.
+    5. Run prediction logic if requested.
+    6. Sort and display top predicted stocks.
+    7. Store top predictions in a JSON file.
+    8. Run backtesting if requested.
+    9. Display filtered data if only date is provided.
 
     Output:
-    None (Prints to stdout).
+    None (prints results and stores predictions in a JSON file).
     """
     args = parse_arguments()
 
@@ -93,26 +97,17 @@ def main():
         print("\nRunning Prediction Mode...")
         df = predictor.predict_future_values(df)
 
-        print(df.columns)
-        if "Predicted_Value" in df.columns:
-            columns_to_show = ["symbol", "ltp", "Predicted_Value"]
+        if "Predicted_Return" in df.columns:
+            columns_to_show = ["symbol", "ltp", "Predicted_Return"]
+            df_sorted = df.sort_values(by="Predicted_Return", ascending=False)
+
             print("\n----- Top 5 Predicted Future Values -----")
-            df_sorted = df.sort_values(by="Predicted_Value", ascending=False)
             print(df_sorted[columns_to_show].head(5).to_string(index=False))
 
             data = {}
-            count = 0
-            for i, row in df_sorted.iterrows():
-                # if i >= 5:
-                #     break
-                count += 1
-                # data[row["symbol"]] = row["Predicted_Value"]
-                # Index(['symbol', 'series', 'open_price', 'high_price', 'low_price', 'ltp',
-                #        'prev_price', 'net_price', 'trade_quantity', 'turnover', 'market_type',
-                #        'ca_ex_dt', 'ca_purpose', 'perChange', 'Predicted_Value'],
-                #       dtype='object')
-                entry = {
-                    "Predicted_Value": row["Predicted_Value"],
+            for _, row in df_sorted.head(5).iterrows():
+                data[row["symbol"]] = {
+                    "Predicted_Return": row["Predicted_Return"],
                     "ltp": row["ltp"],
                     "high_price": row["high_price"],
                     "low_price": row["low_price"],
@@ -121,21 +116,26 @@ def main():
                     "turnover": row["turnover"],
                     "open_price": row["open_price"],
                 }
-                data[row["symbol"]] = entry
-                if count >= 5:
-                    break
 
             date = datetime.datetime.now().strftime("%d-%m-%Y")
-            # data = {datetime.datetime.now().strftime("%d-%m-%Y"): data}
-            with open("predictionData.json", "r") as f:
-                old = json.load(f)
+            filename = "predictionData.json"
 
-            with open("predictionData.json", "w") as f:
-                old[date] = data
+            if os.path.exists(filename):
+                with open(filename, "r") as f:
+                    try:
+                        old = json.load(f)
+                    except json.JSONDecodeError:
+                        old = {}
+            else:
+                old = {}
+
+            old[date] = data
+
+            with open(filename, "w") as f:
                 json.dump(old, f, indent=4)
 
             print("\n----- All Stocks with Predictions -----")
-            print(df[["symbol", "ltp", "Predicted_Value"]].to_string(index=False))
+            print(df[["symbol", "ltp", "Predicted_Return"]].to_string(index=False))
 
     if args.test:
         print("\nRunning Backtest Mode...")

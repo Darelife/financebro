@@ -50,5 +50,57 @@
             "turnover": 35680.04,
             "open_price": 1390.0
         }
+    },
+    "16-04-2026": {
+        "ETERNAL": {
+            "Predicted_Return": 3.2617779392870676,
+            "ltp": 252.91,
+            "high_price": 253.29,
+            "low_price": 247.15,
+            "prev_price": 246.67,
+            "net_price": 2.53,
+            "turnover": 121051.76,
+            "open_price": 249.25
+        },
+        "ADANIENT": {
+            "Predicted_Return": 2.954211058917376,
+            "ltp": 2210.0,
+            "high_price": 2210.4,
+            "low_price": 2161.1,
+            "prev_price": 2144.4,
+            "net_price": 3.06,
+            "turnover": 47792.49,
+            "open_price": 2170.0
+        },
+        "TRENT": {
+            "Predicted_Return": 2.7111062657075564,
+            "ltp": 4088.4,
+            "high_price": 4095.3,
+            "low_price": 3945.1,
+            "prev_price": 3978.2,
+            "net_price": 2.77,
+            "turnover": 56406.92,
+            "open_price": 4019.7
+        },
+        "BEL": {
+            "Predicted_Return": 2.7101040736882873,
+            "ltp": 456.7,
+            "high_price": 457.0,
+            "low_price": 448.9,
+            "prev_price": 447.65,
+            "net_price": 2.02,
+            "turnover": 55271.05,
+            "open_price": 449.85
+        },
+        "HINDALCO": {
+            "Predicted_Return": 1.860149417717387,
+            "ltp": 1040.25,
+            "high_price": 1048.7,
+            "low_price": 1013.0,
+            "prev_price": 1011.45,
+            "net_price": 2.85,
+            "turnover": 113670.64,
+            "open_price": 1016.9
+        }
     }
 }
