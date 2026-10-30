@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from utils import backtester, data_fetcher, historical, predictor
+from utils import backtester, data_fetcher, historical, predictor, simulator
 
 
 def parse_arguments():
@@ -19,7 +19,7 @@ def parse_arguments():
     Parse command line arguments for controlling prediction and testing behavior.
 
     Code Logic:
-    1. Define arguments for prediction, date filtering, and testing.
+    1. Define arguments for prediction, date filtering, testing, and simulation.
     2. Parse command line arguments.
     3. If no arguments are provided, display help and exit.
     4. Return parsed arguments.
@@ -48,6 +48,13 @@ def parse_arguments():
         action="store_true",
         help="Test accuracy by comparing yesterday's data with today",
     )
+    parser.add_argument(
+        "-s",
+        "--simulate",
+        type=int,
+        metavar="DAYS",
+        help="Simulate the strategy over the last DAYS trading days",
+    )
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -69,19 +76,24 @@ def main():
 
     Code Logic:
     1. Parse command line arguments.
-    2. Fetch market data.
-    3. Exit if no data is available.
-    4. Apply date filtering if specified.
-    5. Run prediction logic if requested.
-    6. Sort and display top predicted stocks.
-    7. Store top predictions in a JSON file.
-    8. Run backtesting if requested.
-    9. Display filtered data if only date is provided.
+    2. Run simulation and exit if requested.
+    3. Fetch market data.
+    4. Exit if no data is available.
+    5. Apply date filtering if specified.
+    6. Run prediction logic if requested.
+    7. Sort and display top predicted stocks.
+    8. Store top predictions in a JSON file.
+    9. Run backtesting if requested.
+    10. Display filtered data if only date is provided.
 
     Output:
     None (prints results and stores predictions in a JSON file).
     """
     args = parse_arguments()
+
+    if args.simulate:
+        simulator.simulate(args.simulate)
+        return
 
     print("Fetching market data...")
     df = data_fetcher.get_market_data()

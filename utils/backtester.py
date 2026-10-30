@@ -1,5 +1,16 @@
-import pandas as pd
+import datetime
+import json
+import os
 import re
+
+import pandas as pd
+from nsetools import Nse
+
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+RED = "\033[91m"
+RESET = "\033[0m"
+
 
 def visible_len(s):
     """
@@ -7,7 +18,7 @@ def visible_len(s):
     s (str): Input string containing ANSI codes.
 
     Who calls this function:
-    Internal helper for test_prediction_accuracy.
+    Internal helper for print_table.
 
     Task:
     Calculate the visible length of a string by stripping ANSI codes.
@@ -22,6 +33,7 @@ def visible_len(s):
     """
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
     return len(ansi_escape.sub('', str(s)))
+
 
 def print_table(data, headers):
     """
@@ -76,122 +88,110 @@ def print_table(data, headers):
             row_str += val + " " * padding
         print(row_str)
 
-def test_prediction_accuracy(df):
+
+def test_prediction_accuracy(df, filename="predictionData.json"):
     """
     Input Structure:
-    df (pandas.DataFrame): The dataframe containing stock data with 'ltp' and 'prev_price'.
+    df (pandas.DataFrame): Today's market data with 'symbol' and 'ltp' columns.
+    filename (str): JSON file where past predictions are saved.
 
     Who calls this function:
     Main script when the -t or --test flag is provided.
 
     Task:
-    Backtest the prediction logic by comparing "Yesterday's Prediction" against "Today's Actual" with detailed color-coded output in table format.
+    Compare the most recent saved prediction (excluding today) against today's actual prices, print a color-coded performance table with hit rate and investment summary, and save each actual return back so the predictor calibrates itself.
 
     Code Logic:
-    1. Ensure numeric types for 'ltp' and 'prev_price'.
-    2. Filter valid data.
-    3. Iterate through recommended stocks (Top 5).
-    4. Prepare "Yesterday's Recommendation" table data with Rank.
-    5. Prepare "Today's Performance" table data with Rank and color coding.
-    6. Print the tables using print_table helper.
-    7. Calculate and print the investment summary with color coding.
+    1. Load prediction history and pick the most recent date other than today.
+    2. Map today's symbols to their ltp, falling back to a live quote for stocks that left the gainers list.
+    3. Compute each pick's actual return from its saved entry price.
+    4. Print the recommendation and performance tables using print_table.
+    5. Print the hit rate and the 100,000 inr equal-weight investment summary.
+    6. Save actual_return back into the prediction file.
 
     Output:
-    pandas.DataFrame: The dataframe (unmodified in structure, but printed output is generated).
+    pandas.DataFrame: The dataframe (unmodified).
     """
-    if df.empty:
+    if df.empty or not os.path.exists(filename):
+        print("Nothing to test. Save predictions with -p first.")
         return df
-    
-    df['ltp'] = pd.to_numeric(df['ltp'], errors='coerce')
-    
-    if 'prev_price' not in df.columns:
-        if 'previousClose' in df.columns:
-             df['prev_price'] = df['previousClose']
-        else:
-            print("Error: 'prev_price' column not found for backtesting.")
+
+    with open(filename, "r") as f:
+        try:
+            history = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Error: could not parse {filename}.")
             return df
 
-    df['prev_price'] = pd.to_numeric(df['prev_price'], errors='coerce')
-    
-    df = df.dropna(subset=['ltp', 'prev_price'])
+    today = datetime.datetime.now().strftime("%d-%m-%Y")
+    past = [d for d in history if d != today]
+    if not past:
+        print("No past predictions to test. Run -p today and -t tomorrow.")
+        return df
 
-    recommendations = df.head(5).copy()
+    date = max(past, key=lambda d: datetime.datetime.strptime(d, "%d-%m-%Y"))
+    predictions = history[date]
 
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    RESET = '\033[0m'
+    df["ltp"] = pd.to_numeric(df["ltp"], errors="coerce")
+    prices = dict(zip(df["symbol"], df["ltp"]))
+    nse = Nse()
 
-    # --- Yesterday's Recommendations Table ---
-    print("\n----- These would have been the 5 stocks that I would have recommended -----")
-    
+    print(f"\n----- Predictions from {date} vs Today's Actual -----")
+
     rec_data = []
-    for idx, row in recommendations.iterrows():
-        display_idx = recommendations.index.get_loc(idx) + 1
+    for rank, (symbol, pred) in enumerate(predictions.items(), 1):
         rec_data.append({
-            '#': str(display_idx),
-            'Stock': row['symbol'],
-            'Predicted Change': '+2.00%',
-            "Yesterday's Closing": str(row['prev_price'])
+            "#": str(rank),
+            "Stock": symbol,
+            "Predicted Change": f"+{pred['Predicted_Return']:.2f}%",
+            "Entry Price": str(pred["ltp"]),
         })
-    
-    print_table(rec_data, ['#', 'Stock', 'Predicted Change', "Yesterday's Closing"])
-    
-    # Predicted Investment Value
-    predicted_pct = 2.0
-    predicted_return = 100000 * (1 + predicted_pct / 100)
-    profit = predicted_return - 100000
-    print(f"\n{GREEN}If you invested 100,000 inr yesterday equally in these stocks, you would be predicted to have {int(predicted_return):,} inr. (+ {int(profit):,}){RESET}")
 
-    # --- Today's Performance Table ---
-    print("\n----- These are the best performing stocks for today -----")
-    
+    print_table(rec_data, ["#", "Stock", "Predicted Change", "Entry Price"])
+    print("\n----- How they performed today -----")
+
     perf_data = []
-    for idx, row in recommendations.iterrows():
-        display_idx = recommendations.index.get_loc(idx) + 1
-        
-        # Calculate actual change percentage
-        if row['prev_price'] != 0:
-            actual_change_pct = ((row['ltp'] - row['prev_price']) / row['prev_price']) * 100
-        else:
-            actual_change_pct = 0.0
+    for rank, (symbol, pred) in enumerate(predictions.items(), 1):
+        actual = prices.get(symbol)
+        if pd.isna(actual):
+            try:
+                actual = nse.get_quote(symbol).get("lastPrice")
+            except Exception:
+                actual = None
 
-        if actual_change_pct >= 2.0:
-            color = GREEN
-        elif actual_change_pct >= 0:
-            color = YELLOW
-        else:
-            color = RED
-            
-        sign = "+" if actual_change_pct >= 0 else ""
-        change_str = f"{sign}{actual_change_pct:.2f}%"
+        if actual is None:
+            perf_data.append({"#": str(rank), "Stock": symbol, "Actual Change": "N/A", "Closing": "N/A"})
+            continue
 
+        change = (actual - pred["ltp"]) / pred["ltp"] * 100
+        pred["actual_return"] = round(change, 2)
+
+        color = GREEN if change >= 2 else YELLOW if change >= 0 else RED
+        sign = "+" if change >= 0 else ""
         perf_data.append({
-            '#': str(display_idx),
-            'Stock': row['symbol'],
-            'Actual Change': f"{color}{change_str}{RESET}",
-            'Opening': f"{color}{row.get('open_price', 'N/A')}{RESET}",
-            'Closing': f"{color}{row['ltp']}{RESET}",
-            'Max': f"{color}{row.get('high_price', 'N/A')}{RESET}",
-            'Min': f"{color}{row.get('low_price', 'N/A')}{RESET}"
+            "#": str(rank),
+            "Stock": symbol,
+            "Actual Change": f"{color}{sign}{change:.2f}%{RESET}",
+            "Closing": f"{color}{actual}{RESET}",
         })
 
-    print_table(perf_data, ['#', 'Stock', 'Actual Change', 'Opening', 'Closing', 'Max', 'Min'])
+    print_table(perf_data, ["#", "Stock", "Actual Change", "Closing"])
 
-    # --- Investment Summary ---
-    investment_per_stock = 20000
-    total_investment = 100000
-    
-    recommendations['Units'] = investment_per_stock / recommendations['prev_price']
-    recommendations['Current_Value'] = recommendations['Units'] * recommendations['ltp']
-    
-    total_current_value = recommendations['Current_Value'].sum()
-    profit_loss = total_current_value - total_investment
-    
-    sign = "+" if profit_loss >= 0 else "-"
-    pl_color = GREEN if profit_loss >= 0 else RED
-    
-    print(f"\n{pl_color}If you invested {total_investment:,} inr yesterday equally in the stocks i recommended, You would have had {int(total_current_value):,} inr. ({sign} {abs(int(profit_loss)):,}){RESET}")
-    
+    returns = [v["actual_return"] for v in predictions.values() if "actual_return" in v]
+    if returns:
+        mean = sum(returns) / len(returns)
+        hit_rate = 100 * sum(r > 0 for r in returns) / len(returns)
+        total = 100000 * (1 + mean / 100)
+        profit = total - 100000
+        pl_color = GREEN if profit >= 0 else RED
+        sign = "+" if profit >= 0 else "-"
+
+        print(f"\n{pl_color}If you invested 100,000 inr equally in these {len(returns)} stocks, you would now have {int(total):,} inr. ({sign} {abs(int(profit)):,}){RESET}")
+        print(f"Hit rate: {hit_rate:.0f}% positive. Average return: {mean:+.2f}%")
+
+        with open(filename, "w") as f:
+            json.dump(history, f, indent=4)
+
+        print(f"\nActual returns saved to {filename} to calibrate future predictions.")
+
     return df
-
