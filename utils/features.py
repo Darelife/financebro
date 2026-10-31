@@ -24,7 +24,7 @@ def build_features(close, volume):
     Output:
     dict: Feature DataFrames keyed by name, with "close" included.
     """
-    ret = close.pct_change()
+    ret = close.pct_change(fill_method=None)
     delta = close.diff()
     gain = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False).mean()
     loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False).mean()
@@ -32,8 +32,8 @@ def build_features(close, volume):
     return {
         "close": close,
         "ret1": ret,
-        "ret5": close.pct_change(5),
-        "ret20": close.pct_change(20),
+        "ret5": close.pct_change(5, fill_method=None),
+        "ret20": close.pct_change(20, fill_method=None),
         "vol20": ret.rolling(20).std(),
         "dist_ma20": close / close.rolling(20).mean() - 1,
         "rsi14": 100 - 100 / (1 + gain / loss.replace(0, np.nan)),
