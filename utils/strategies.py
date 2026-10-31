@@ -15,15 +15,26 @@ def zcross(series):
     return (series - series.mean()) / series.std()
 
 
+# Trend persistence: stocks whose recent returns beat the market's tend to keep
+# outperforming for a few more days. 5-day moves get more weight than 20-day ones
+# because short-term momentum decays fast.
 def momentum(panel, t):
     return 0.6 * zcross(panel["ret5"].iloc[t]) + 0.4 * zcross(panel["ret20"].iloc[t])
 
 
+# Mean reversion: stocks stretched far above their 20-day average tend to snap back,
+# so we short the stretch. Only applied at RSI extremes (<35 oversold, >65 overbought)
+# where reversion is most reliable; mid-range names get no score at all.
 def reversion(panel, t):
     rsi = panel["rsi14"].iloc[t]
     return -zcross(panel["dist_ma20"].iloc[t]).where((rsi < 35) | (rsi > 65))
 
 
+# Empirical base rates: look up how often this kind of stock went up the next day.
+# Every past day is binned by its 5-day return and distance from its 20-day average,
+# and each (ret5, dist) bucket records its historical share of next-day-up outcomes.
+# Laplace smoothing (+1/+2) keeps thin buckets near 50/50 instead of trusting them.
+# Score maps the probability to -1..+1 around the 50% coin flip.
 def probability(panel, t, ret1, window=250):
     lo = max(0, t - window)
     if t - lo < 20:
@@ -45,6 +56,11 @@ def probability(panel, t, ret1, window=250):
     return pd.Series((p[today5, todayd] - 0.5) * 2, index=ret1.columns)
 
 
+# Learned model: Ridge regression over all seven features, refit every day on the
+# trailing year so it can only ever see the past. Ridge's L2 penalty keeps the
+# coefficients small, which matters because these features are noisy and correlated.
+# Training rows whose next-day move exceeded CLIP are dropped (news, not noise),
+# and only the pattern the model actually learned is trusted at prediction time.
 def ml(panel, t, ret1, window=250):
     lo = max(0, t - window)
     if t - lo < 30:
