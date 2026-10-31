@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from utils import backtester, data_fetcher, historical, predictor, simulator
+from utils import backtester, data_fetcher, features, historical, predictor, simulator
 
 
 def parse_arguments():
@@ -77,14 +77,11 @@ def main():
     Code Logic:
     1. Parse command line arguments.
     2. Run simulation and exit if requested.
-    3. Fetch market data.
-    4. Exit if no data is available.
-    5. Apply date filtering if specified.
-    6. Run prediction logic if requested.
-    7. Sort and display top predicted stocks.
-    8. Store top predictions in a JSON file.
-    9. Run backtesting if requested.
-    10. Display filtered data if only date is provided.
+    3. In prediction mode, fetch two years of NIFTY 50 candles, build the feature panel and predict the next-day returns of every stock.
+    4. Sort and display the top 5 predicted stocks.
+    5. Store the top predictions in a JSON file.
+    6. In test mode, fetch today's market data and grade the last saved prediction.
+    7. Display filtered data if only date is provided.
 
     Output:
     None (prints results and stores predictions in a JSON file).
@@ -95,67 +92,57 @@ def main():
         simulator.simulate(args.simulate)
         return
 
-    print("Fetching market data...")
-    df = data_fetcher.get_market_data()
-
-    if df.empty:
-        print("No data received. Exiting.")
-        return
-
-    if args.date:
-        df = historical.filter_by_date(df, args.date)
-
     if args.predict:
         print("\nRunning Prediction Mode...")
-        df = predictor.predict_future_values(df)
+        close, volume = data_fetcher.get_candles(simulator.UNIVERSE)
 
-        if "Predicted_Return" in df.columns:
-            columns_to_show = ["symbol", "ltp", "Predicted_Return"]
-            df_sorted = df.sort_values(by="Predicted_Return", ascending=False)
+        if close is None or close.empty:
+            print("No data received. Exiting.")
+            return
 
-            print("\n----- Top 5 Predicted Future Values -----")
-            print(df_sorted[columns_to_show].head(5).to_string(index=False))
+        panel = features.build_features(close, volume)
+        df = predictor.predict_future_values(panel, len(close.index) - 1)
 
-            data = {}
-            for _, row in df_sorted.head(5).iterrows():
-                data[row["symbol"]] = {
-                    "Predicted_Return": row["Predicted_Return"],
-                    "ltp": row["ltp"],
-                    "high_price": row["high_price"],
-                    "low_price": row["low_price"],
-                    "prev_price": row["prev_price"],
-                    "net_price": row["net_price"],
-                    "turnover": row["turnover"],
-                    "open_price": row["open_price"],
-                }
+        print("\n----- Top 5 Predicted Future Values -----")
+        print(df[["symbol", "ltp", "Predicted_Return"]].head(5).to_string(index=False))
 
-            date = datetime.datetime.now().strftime("%d-%m-%Y")
-            filename = "predictionData.json"
+        date = datetime.datetime.now().strftime("%d-%m-%Y")
+        filename = "predictionData.json"
 
-            if os.path.exists(filename):
-                with open(filename, "r") as f:
-                    try:
-                        old = json.load(f)
-                    except json.JSONDecodeError:
-                        old = {}
-            else:
-                old = {}
+        old = {}
+        if os.path.exists(filename):
+            with open(filename, "r") as f:
+                try:
+                    old = json.load(f)
+                except json.JSONDecodeError:
+                    old = {}
 
-            old[date] = data
+        old[date] = {row["symbol"]: {"Predicted_Return": row["Predicted_Return"], "ltp": row["ltp"]}
+                     for _, row in df.head(5).iterrows()}
 
-            with open(filename, "w") as f:
-                json.dump(old, f, indent=4)
+        with open(filename, "w") as f:
+            json.dump(old, f, indent=4)
 
-            print("\n----- All Stocks with Predictions -----")
-            print(df[["symbol", "ltp", "Predicted_Return"]].to_string(index=False))
+        print("\n----- All Stocks with Predictions -----")
+        print(df[["symbol", "ltp", "Predicted_Return"]].to_string(index=False))
 
-    if args.test:
-        print("\nRunning Backtest Mode...")
-        backtester.test_prediction_accuracy(df)
+    if args.test or (args.date and not args.predict):
+        print("Fetching market data...")
+        df = data_fetcher.get_market_data()
 
-    if args.date and not args.predict and not args.test:
-        print(f"\nData for {args.date} (Simulated/Proxy):")
-        print(df.head(10).to_string(index=False))
+        if df.empty:
+            print("No data received. Exiting.")
+            return
+
+        if args.date:
+            df = historical.filter_by_date(df, args.date)
+
+        if args.test:
+            print("\nRunning Backtest Mode...")
+            backtester.test_prediction_accuracy(df)
+        elif args.date:
+            print(f"\nData for {args.date} (Simulated/Proxy):")
+            print(df.head(10).to_string(index=False))
 
 
 if __name__ == "__main__":

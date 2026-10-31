@@ -1,5 +1,38 @@
 import pandas as pd
+import yfinance as yf
 from nsetools import Nse
+
+
+def get_candles(universe):
+    """
+    Input Structure:
+    universe (tuple): NSE symbols to download.
+
+    Who calls this function:
+    The -p path in the main script.
+
+    Task:
+    Download two years of daily candles for the universe.
+
+    Code Logic:
+    1. Download daily OHLCV data from yfinance with the .NS suffix appended.
+    2. Split it into closing-price and volume DataFrames (dates x symbols).
+    3. Return both.
+
+    Output:
+    tuple: (close, volume) DataFrames, or (None, None) if the download fails.
+    """
+    try:
+        data = yf.download(" ".join(s + ".NS" for s in universe), period="2y",
+                           group_by="ticker", auto_adjust=True, progress=False)
+        if data.empty:
+            return None, None
+        close = pd.DataFrame({s: data[s + ".NS"]["Close"] for s in universe})
+        volume = pd.DataFrame({s: data[s + ".NS"]["Volume"] for s in universe})
+        return close, volume
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        return None, None
 
 
 def get_market_data():
