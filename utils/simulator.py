@@ -1,11 +1,12 @@
-import json
-import os
-import tempfile
+import matplotlib
 
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
 import pandas as pd
 import yfinance as yf
 
-from utils import predictor
+from utils import features, predictor
 
 UNIVERSE = (
     "ADANIENT", "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "BAJAJ-AUTO", "BAJFINANCE", "BAJAJFINSV", "BEL",
@@ -17,6 +18,19 @@ UNIVERSE = (
     "WIPRO", "ADANIPORTS", "LTIM",
 )
 
+BENCHMARKS = {"^NSEI": "NIFTY 50", "^NSMIDCP": "NIFTY Next 50"}
+
+
+def _fetch():
+    data = yf.download(" ".join(s + ".NS" for s in UNIVERSE) + " " + " ".join(BENCHMARKS),
+                       period="3y", group_by="ticker", auto_adjust=True, progress=False)
+    if data.empty:
+        return None
+    close = pd.DataFrame({s: data[s + ".NS"]["Close"] for s in UNIVERSE})
+    volume = pd.DataFrame({s: data[s + ".NS"]["Volume"] for s in UNIVERSE})
+    bench = {b: data[b]["Close"] for b in BENCHMARKS}
+    return close, volume, bench
+
 
 def simulate(days):
     """
@@ -27,87 +41,84 @@ def simulate(days):
     Main script when the -s or --simulate flag is used.
 
     Task:
-    Replay the daily loop (predict top 5, grade against the next day, recalibrate) over historical NIFTY 50 data and report how the strategy would have performed over that span.
+    Walk every strategy sleeve forward day by day over historical NIFTY 50 data, grade each sleeve's own top 5 picks against the next day, and report per-sleeve results plus NIFTY benchmarks in a table and a cumulative-return chart.
 
     Code Logic:
-    1. Download daily candles for the NIFTY 50 universe and the NIFTY index.
-    2. Walk forward one trading day at a time, skipping the first day (no previous close) and the last day (no next day to grade against).
-    3. Rebuild each day's market snapshot in the live schema and run predict_future_values with a temporary history file.
-    4. Record the top 5 picks, grade them against the next day's close, and save actual returns so later days calibrate exactly like the real loop.
-    5. Print hit rate, average pick return, the compounded 100,000 inr portfolio value and the NIFTY buy-and-hold comparison.
+    1. Download 3 years of daily candles for the universe and the two benchmark indices.
+    2. Build the feature panel once.
+    3. Walk forward one trading day at a time over the requested span, running the predictor on each day.
+    4. For each sleeve (and the ensemble), take its own top 5 picks, grade them against the next day's close, and compound the sleeve's daily mean return into a cumulative curve.
+    5. Compound each benchmark index alongside.
+    6. Print a per-sleeve summary table and save the cumulative comparison chart to strategy_comparison.png.
 
     Output:
-    None (prints the simulation summary).
+    None (prints the summary and saves strategy_comparison.png).
     """
-    print(f"Downloading {days} trading days of NIFTY 50 data...")
-    data = yf.download(" ".join(s + ".NS" for s in UNIVERSE) + " ^NSEI",
-                       period=f"{days * 2 + 10}d", group_by="ticker", auto_adjust=True, progress=False)
-    if data.empty:
+    print("Downloading 3 years of NIFTY 50 data...")
+    fetched = _fetch()
+    if fetched is None:
         print("No data received. Exiting.")
         return
+    close, volume, bench = fetched
+    dates = close.index
+    start = max(len(dates) - days - 1, 60)
 
-    close = pd.DataFrame({s: data[s + ".NS"]["Close"] for s in UNIVERSE})
-    prev_close = close.shift(1)
-    candles = {c: pd.DataFrame({s: data[s + ".NS"][c] for s in UNIVERSE}) for c in ("Open", "High", "Low", "Volume")}
+    bench_cum = {b: (bench[b].pct_change(fill_method=None).fillna(0) + 1).cumprod().reindex(dates).ffill()
+                 for b in BENCHMARKS}
+    bench_cum = {b: c / c.iloc[start] * 100 for b, c in bench_cum.items()}
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
-    history = {}
-    day_results = []
-    dates = data.index[-(days + 2):]
+    panel = features.build_features(close, volume)
 
-    for t in range(1, len(dates) - 1):
-        rows = []
-        for s in UNIVERSE:
-            ltp, prev = close.at[dates[t], s], prev_close.at[dates[t], s]
-            if pd.isna(ltp) or pd.isna(prev) or prev == 0:
+    curves = {name: [100.0] for name in predictor.WEIGHTS}
+    curves["ensemble"] = [100.0]
+    bench_curves = {b: [100.0] for b in BENCHMARKS}
+    returns = {name: [] for name in curves}
+    sim_dates = []
+
+    for t in range(start, len(dates) - 1):
+        df = predictor.predict_future_values(panel, t)
+        if df.empty:
+            continue
+
+        for name in curves:
+            picks = df.nlargest(5, "Predicted_Return" if name == "ensemble" else name)
+            day = [(close.at[dates[t + 1], s] - ltp) / ltp * 100
+                   for s, ltp in zip(picks["symbol"], picks["ltp"])
+                   if not pd.isna(close.at[dates[t + 1], s])]
+            if not day:
                 continue
-            rows.append({
-                "symbol": s,
-                "ltp": ltp,
-                "open_price": candles["Open"].at[dates[t], s],
-                "high_price": candles["High"].at[dates[t], s],
-                "low_price": candles["Low"].at[dates[t], s],
-                "prev_price": prev,
-                "net_price": round((ltp - prev) / prev * 100, 2),
-                "turnover": candles["Volume"].at[dates[t], s] * ltp,
-            })
+            returns[name].extend(day)
+            curves[name].append(curves[name][-1] * (1 + sum(day) / len(day) / 100))
 
-        df = predictor.predict_future_values(pd.DataFrame(rows), filename=tmp)
-        picks = {}
-        for _, row in df.sort_values("Predicted_Return", ascending=False).head(5).iterrows():
-            nxt = close.at[dates[t + 1], row["symbol"]]
-            if pd.isna(nxt):
-                continue
-            picks[row["symbol"]] = {
-                "Predicted_Return": row["Predicted_Return"],
-                "ltp": row["ltp"],
-                "actual_return": round((nxt - row["ltp"]) / row["ltp"] * 100, 2),
-            }
+        for b in BENCHMARKS:
+            bench_curves[b].append(bench_cum[b].at[dates[t + 1]])
 
-        history[dates[t].strftime("%d-%m-%Y")] = picks
-        with open(tmp, "w") as f:
-            json.dump(history, f)
-        if picks:
-            day_results.append([p["actual_return"] for p in picks.values()])
+        sim_dates.append(dates[t + 1])
 
-    os.remove(tmp)
-
-    flat = [r for day in day_results for r in day]
-    if not flat:
+    if not sim_dates:
         print("No days could be simulated.")
         return
 
-    value = 100000.0
-    for day in day_results:
-        value *= sum(1 + r / 100 for r in day) / len(day)
+    print(f"\n----- Simulation Summary ({len(sim_dates)} days) -----")
+    print(f"{'Strategy':<12} {'Hit rate':>9} {'Avg/day':>9} {'Total':>9}")
+    for name, curve in curves.items():
+        rs = returns[name]
+        hit = 100 * sum(r > 0 for r in rs) / len(rs) if rs else 0
+        avg = sum(rs) / len(rs) if rs else 0
+        total = curve[-1] - 100
+        print(f"{name:<12} {hit:>8.0f}% {avg:>+8.2f}% {total:>+8.1f}%")
 
-    nifty = data["^NSEI"]["Close"].reindex(dates).dropna()
-    benchmark = (nifty.iloc[-1] / nifty.iloc[0] - 1) * 100 if len(nifty) > 1 else 0.0
+    for b in BENCHMARKS:
+        print(f"{BENCHMARKS[b]:<12} {'':>9} {'':>9} {bench_curves[b][-1] - 100:>+8.1f}%")
 
-    print("\n----- Simulation Summary -----")
-    print(f"Days simulated: {len(day_results)}, picks graded: {len(flat)}")
-    print(f"Hit rate: {100 * sum(r > 0 for r in flat) / len(flat):.0f}% positive picks")
-    print(f"Average pick return: {sum(flat) / len(flat):+.2f}%/day (best {max(flat):+.2f}%, worst {min(flat):+.2f}%)")
-    pl = "+" if value >= 100000 else "-"
-    print(f"100,000 inr compounded to {int(value):,} inr ({pl} {abs(value - 100000):,.0f} inr, {(value / 100000 - 1) * 100:+.1f}%)")
-    print(f"NIFTY 50 buy & hold over the same span: {benchmark:+.2f}%")
+    plt.figure(figsize=(12, 6))
+    for name, curve in curves.items():
+        plt.plot(sim_dates[:len(curve) - 1], curve[1:], label=name)
+    for b in BENCHMARKS:
+        plt.plot(sim_dates[:len(bench_curves[b]) - 1], bench_curves[b][1:], "--", label=BENCHMARKS[b])
+    plt.title("Strategy comparison (top-5 daily picks, NIFTY 50 universe)")
+    plt.ylabel("Growth of 100 inr (%)")
+    plt.grid(alpha=0.3)
+    plt.legend()
+    plt.savefig("strategy_comparison.png", dpi=120, bbox_inches="tight")
+    print("\nChart saved to strategy_comparison.png")

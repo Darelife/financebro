@@ -102,5 +102,27 @@
             "turnover": 113670.64,
             "open_price": 1016.9
         }
+    },
+    "31-10-2026": {
+        "SHRIRAMFIN": {
+            "Predicted_Return": 0.7030655530266257,
+            "ltp": 823.1500244140625
+        },
+        "TCS": {
+            "Predicted_Return": 0.5251749582736497,
+            "ltp": 2502.60009765625
+        },
+        "JIOFIN": {
+            "Predicted_Return": 0.4729404134867678,
+            "ltp": 204.5
+        },
+        "KOTAKBANK": {
+            "Predicted_Return": -0.29465512738394756,
+            "ltp": 461.6000061035156
+        },
+        "BHARTIARTL": {
+            "Predicted_Return": -0.31828231494671805,
+            "ltp": 1973.699951171875
+        }
     }
 }
